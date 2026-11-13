@@ -1,12 +1,14 @@
-# 说明：这个工作流在 GitHub 免费 macOS 云端机器上编译 openOMSI 的 iPhone/iPad 版，
+# 说明：在 GitHub 免费 macOS 云端机器上编译 openOMSI 的 iPhone/iPad 版，
 #       产出"未签名 ipa"，之后用签名工具在手机上签名安装。
-# 触发方式：手动运行，或本文件被推送时自动运行。
-# 本次配置固定编译官方仓库 openOMSI-org/openOMSI 的 v0.3.54 标签代码（最新版本）。
-# 预计运行 40~90 分钟（Rust 引擎要从头编译一遍，第二次会因缓存快很多）。
+# 固定编译官方仓库 openOMSI-org/openOMSI 的 v0.3.54 标签（最新版）。
+# 因为 macOS 机器紧张（排队15分钟抢不到会被自动取消），本工作流每15分钟
+# 自动重试一次；编译成功发布 ipa 后，后续自动运行会快速跳过，不再占用机器。
 name: Build unsigned iOS ipa
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
   push:
     branches: [main]
     paths: ['.github/workflows/build-ipa-sideload.yml']
@@ -15,7 +17,24 @@ permissions:
   contents: write
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view ios-unsigned-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: macos-26
     steps:
       - name: 拉取源码（官方仓库 v0.3.54）
@@ -70,7 +89,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete ios-unsigned-latest --yes --cleanup-tag 2>/dev/null || true
           gh release create ios-unsigned-latest out/openOMSI-unsigned-ios.ipa \
             --repo "$GITHUB_REPOSITORY" \
             --title "openOMSI iOS 未签名 ipa（v0.3.54）" \
