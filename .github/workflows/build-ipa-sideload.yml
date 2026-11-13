@@ -1,20 +1,28 @@
-# 上传位置说明：这个文件要放到你 Fork 的仓库里，路径必须是
-#   .github/workflows/build-ipa-sideload.yml
-# 作用：在 GitHub 免费的 macOS 云端机器上编译 openOMSI 的 iPhone/iPad 版，
-#       产出一个“未签名 ipa”，之后用 Sideloadly 在 Windows 上签名安装。
-# 运行时间预计 40~90 分钟（Rust 引擎要从头编译一遍）。
+# 说明：这个工作流在 GitHub 免费 macOS 云端机器上编译 openOMSI 的 iPhone/iPad 版，
+#       产出"未签名 ipa"，之后用签名工具在手机上签名安装。
+# 触发方式：手动运行，或本文件被推送时自动运行。
+# 本次配置固定编译官方仓库 openOMSI-org/openOMSI 的 v0.3.54 标签代码（最新版本）。
+# 预计运行 40~90 分钟（Rust 引擎要从头编译一遍，第二次会因缓存快很多）。
 name: Build unsigned iOS ipa
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/build-ipa-sideload.yml']
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: macos-26
     steps:
-      - name: 拉取源码
+      - name: 拉取源码（官方仓库 v0.3.54）
         uses: actions/checkout@v7
         with:
+          repository: openOMSI-org/openOMSI
+          ref: v0.3.54
           fetch-depth: 0
 
       - name: 安装 Rust（iOS 目标）
@@ -57,3 +65,13 @@ jobs:
           name: openOMSI-unsigned-ipa
           path: out/openOMSI-unsigned-ios.ipa
           retention-days: 14
+
+      - name: 发布到 Release（免登录直接下载）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ios-unsigned-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create ios-unsigned-latest out/openOMSI-unsigned-ios.ipa \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "openOMSI iOS 未签名 ipa（v0.3.54）" \
+            --notes "自动编译的未签名 iPhone/iPad 版，用于第三方签名工具签名安装。"
